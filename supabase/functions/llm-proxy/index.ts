@@ -67,6 +67,11 @@ Every property listed under "properties" in the schema is required unless the sc
   }
 }
 
+// Requests verbose_json instead of the default plain-text response, which
+// gives us real segment-level start/end timestamps straight from Whisper.
+// Without this, the transcript is just a wall of text with zero timing
+// info, and the extraction step downstream has nothing to ground
+// timestamps in — it ends up inventing plausible-looking but fake ones.
 async function transcribeAudio(audioUrl: string) {
   const audioRes = await fetch(audioUrl);
   if (!audioRes.ok) {
@@ -77,6 +82,7 @@ async function transcribeAudio(audioUrl: string) {
   const form = new FormData();
   form.append("file", audioBlob, "audio.mp3");
   form.append("model", WHISPER_MODEL);
+  form.append("response_format", "verbose_json");
 
   const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
@@ -90,7 +96,14 @@ async function transcribeAudio(audioUrl: string) {
   }
 
   const data = await res.json();
-  return data.text as string;
+  return {
+    text: data.text as string,
+    segments: (data.segments || []).map((s: any) => ({
+      start: s.start,
+      end: s.end,
+      text: s.text,
+    })),
+  };
 }
 
 serve(async (req) => {
@@ -106,9 +119,11 @@ serve(async (req) => {
       case "invoke_llm":
         result = await invokeLLM(payload.prompt, payload.schema, payload.model);
         break;
-      case "transcribe_audio":
-        result = { transcript: await transcribeAudio(payload.audio_url) };
+      case "transcribe_audio": {
+        const { text, segments } = await transcribeAudio(payload.audio_url);
+        result = { transcript: text, segments };
         break;
+      }
       default:
         throw new Error(`Unknown action: ${action}`);
     }

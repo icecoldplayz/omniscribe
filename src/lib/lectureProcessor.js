@@ -83,7 +83,20 @@ async function callLLMProxy(action, payload) {
   return data;
 }
 
-// ---- public API (same signatures as the Base44 version, plus hasAudio) --------------
+function formatTimestamp(totalSeconds) {
+  const m = Math.floor(totalSeconds / 60);
+  const s = Math.floor(totalSeconds % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// Turns Whisper's real segment timestamps into a [MM:SS]-annotated
+// transcript the model can ground itself in, instead of guessing.
+function buildTimestampedTranscript(segments) {
+  if (!segments || segments.length === 0) return null;
+  return segments.map(s => `[${formatTimestamp(s.start)}] ${s.text.trim()}`).join('\n');
+}
+
+// ---- public API (same signatures as the Base44 version, plus hasAudio/segments) --------------
 
 export async function uploadAndTranscribe(file) {
   const path = `lectures/${crypto.randomUUID()}-${file.name}`;
@@ -97,21 +110,27 @@ export async function uploadAndTranscribe(file) {
     .from('lecture-audio')
     .getPublicUrl(path);
 
-  const { transcript } = await callLLMProxy('transcribe_audio', { audio_url: publicUrl });
+  const { transcript, segments } = await callLLMProxy('transcribe_audio', { audio_url: publicUrl });
 
-  return { transcript, audio_url: publicUrl };
+  return { transcript, segments, audio_url: publicUrl };
 }
 
-export async function extractLectureData(transcript, title, subject, hasAudio) {
+export async function extractLectureData(transcript, title, subject, hasAudio, segments) {
   // Pasted-text transcripts carry no real timing information — there's no
-  // audio to derive MM:SS from. Previously the prompt always asked for
-  // "approximate" timestamps regardless of source, so the model would
-  // invent tidy, evenly-spaced values (00:00, 05:00, 10:00...) that looked
-  // plausible but were entirely fabricated. Now we tell it explicitly not
-  // to guess when there's no audio behind the transcript.
-  const timestampGuidance = hasAudio
-    ? `Timestamps should be approximate based on content flow if exact timestamps aren't determinable from the audio.`
-    : `IMPORTANT: This transcript was pasted as plain text with NO associated audio or real timing information. Do NOT invent or guess MM:SS timestamps — they would be fabricated. For timestamp_start, timestamp_end, and timeline "timestamp" fields, return an empty string "" instead.`;
+  // audio to derive MM:SS from. Real audio uploads now carry actual Whisper
+  // segment timestamps, so we anchor the model to those exact values
+  // instead of letting it estimate/guess, which previously produced
+  // impossible timestamps (e.g. 30:00 in a 9-minute recording) and
+  // suspiciously round 5-minute intervals.
+  const timestampedTranscript = hasAudio ? buildTimestampedTranscript(segments) : null;
+
+  const timestampGuidance = timestampedTranscript
+    ? `The transcript below is annotated with REAL timestamps in [MM:SS] format, taken directly from the audio. The lecture's total length is approximately ${formatTimestamp(segments[segments.length - 1].end)}. You MUST use these actual timestamps — find the [MM:SS] marker nearest to where a concept is discussed and use that exact value. Do NOT invent timestamps, and NEVER produce a timestamp beyond the lecture's actual length shown above.`
+    : hasAudio
+      ? `Timestamps should be approximate based on content flow if exact timestamps aren't determinable from the audio.`
+      : `IMPORTANT: This transcript was pasted as plain text with NO associated audio or real timing information. Do NOT invent or guess MM:SS timestamps — they would be fabricated. For timestamp_start, timestamp_end, and timeline "timestamp" fields, return an empty string "" instead.`;
+
+  const transcriptForPrompt = timestampedTranscript || transcript;
 
   const prompt = `You are OmniScribe, an expert educational content analyzer. Analyze the following lecture transcript and extract structured educational data.
 
@@ -120,7 +139,7 @@ Subject: ${subject || "Not specified"}
 
 TRANSCRIPT:
 """
-${transcript}
+${transcriptForPrompt}
 """
 
 Extract the following with maximum accuracy:
@@ -143,14 +162,14 @@ CRITICAL RULES:
   });
 }
 
-export async function processLecture(lectureId, transcript, title, subject, audioUrl, hasAudio) {
+export async function processLecture(lectureId, transcript, title, subject, audioUrl, hasAudio, segments) {
   await supabase.from('lectures').update({
     processing_status: "processing",
     transcript,
     audio_url: audioUrl || ""
   }).eq('id', lectureId);
 
-  const data = await extractLectureData(transcript, title, subject, hasAudio);
+  const data = await extractLectureData(transcript, title, subject, hasAudio, segments);
 
   await supabase.from('lectures').update({
     processing_status: "ready",
@@ -223,7 +242,7 @@ STUDENT'S NEW QUESTION: ${question}
 
 Provide your response. Also estimate your confidence (0-100%) that the student understands the topic based on their question and the conversation flow. Include a brief reason for your confidence estimate.
 
-CRITICAL: Do not claim the lecture covered content it didn't. However, if the student asks for practice questions, examples, or exercises that apply a strategy or concept taught in the lecture, you MAY generate original practice material — clearly label it as a practice example you created, not something from the lecture itself.`;
+CRITICAL: Only use information from the lecture transcript. Do NOT make up information or bring in outside knowledge unless asked for an analogy (which should be clearly labeled as an analogy).`;
 
   const schema = {
     type: "object",
@@ -232,6 +251,45 @@ CRITICAL: Do not claim the lecture covered content it didn't. However, if the st
       confidence_level: { type: "number", description: "0-100 confidence that the student understands" },
       confidence_reason: { type: "string", description: "Brief reason for the confidence estimate" },
       related_concepts: { type: "array", items: { type: "string" }, description: "Concept names from the lecture that are relevant" }
+    }
+  };
+
+  return callLLMProxy('invoke_llm', { prompt, schema });
+}
+
+export async function generatePracticeQuiz(transcript, studentRequest, count = 10) {
+  const prompt = `You are OmniScribe, an AI tutor creating an ORIGINAL practice quiz based on the strategies and concepts taught in the lecture transcript below.
+
+The student asked: "${studentRequest}"
+
+LECTURE TRANSCRIPT:
+"""
+${transcript}
+"""
+
+Create exactly ${count} original practice questions that exercise the strategy or concept the student is asking to practice, as taught in the transcript. These questions should NOT be lifted verbatim from the transcript — generate new, realistic practice examples that apply the same skill, the way a tutor would write fresh practice problems for a student, while staying grounded in what the lecture actually taught (do not introduce strategies or content the lecture never covered).
+
+Each question must have exactly 4 answer options, exactly one correct answer, and a detailed explanation of why the correct answer is right and why each of the other three options is wrong.
+
+Also return a short quiz title summarizing the topic (e.g. "Command of Evidence Practice").`;
+
+  const schema = {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Short title summarizing the quiz topic" },
+      questions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            question: { type: "string" },
+            options: { type: "array", items: { type: "string" }, description: "Exactly 4 answer options" },
+            correct_answer_index: { type: "number", description: "0-based index of the correct option" },
+            explanation: { type: "string", description: "Explains why the correct answer is right and why each other option is wrong" },
+            difficulty: { type: "string", enum: ["easy", "medium", "hard"] }
+          }
+        }
+      }
     }
   };
 
@@ -305,43 +363,4 @@ Return the current readiness, projected readiness, and daily sessions.`;
   }
 
   return result;
-}
-
-export async function generatePracticeQuiz(transcript, studentRequest, count = 10) {
-  const prompt = `You are OmniScribe, an AI tutor creating an ORIGINAL practice quiz based on the strategies and concepts taught in the lecture transcript below.
-
-The student asked: "${studentRequest}"
-
-LECTURE TRANSCRIPT:
-"""
-${transcript}
-"""
-
-Create exactly ${count} original practice questions that exercise the strategy or concept the student is asking to practice, as taught in the transcript. These questions should NOT be lifted verbatim from the transcript — generate new, realistic practice examples that apply the same skill, the way a tutor would write fresh practice problems for a student, while staying grounded in what the lecture actually taught (do not introduce strategies or content the lecture never covered).
-
-Each question must have exactly 4 answer options, exactly one correct answer, and a detailed explanation of why the correct answer is right and why each of the other three options is wrong.
-
-Also return a short quiz title summarizing the topic (e.g. "Command of Evidence Practice").`;
-
-  const schema = {
-    type: "object",
-    properties: {
-      title: { type: "string", description: "Short title summarizing the quiz topic" },
-      questions: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            question: { type: "string" },
-            options: { type: "array", items: { type: "string" }, description: "Exactly 4 answer options" },
-            correct_answer_index: { type: "number", description: "0-based index of the correct option" },
-            explanation: { type: "string", description: "Explains why the correct answer is right and why each other option is wrong" },
-            difficulty: { type: "string", enum: ["easy", "medium", "hard"] }
-          }
-        }
-      }
-    }
-  };
-
-  return callLLMProxy('invoke_llm', { prompt, schema });
 }

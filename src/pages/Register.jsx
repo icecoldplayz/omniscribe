@@ -10,12 +10,6 @@ import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "@/components/ui/use-toast";
 
-// NOTE: for the 6-digit OTP flow below to work, go to
-// Supabase Dashboard > Authentication > Email Templates > Confirm signup
-// and make sure the template includes {{ .Token }} (the 6-digit code),
-// not just {{ .ConfirmationURL }}. Supabase sends both by default in
-// newer projects, but older projects' templates may need updating.
-
 export default function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,9 +28,16 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
-      setShowOtp(true);
+
+      // If email confirmation is disabled in Supabase, log in directly
+      if (data?.session) {
+        window.location.href = "/";
+      } else {
+        // Only show OTP/Verification screen if Supabase requires confirmation
+        setShowOtp(true);
+      }
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
@@ -77,10 +78,12 @@ export default function Register() {
   };
 
   const handleGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
+    setError("");
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/` },
     });
+    if (error) setError(error.message);
   };
 
   if (showOtp) {

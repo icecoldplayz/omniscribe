@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Loader2, Mic, Type, X, CheckCircle2, Brain, Network, UserRound } from 'lucide-react';
+import { Upload, FileText, Loader2, Mic, Type, X, CheckCircle2, Brain, Network } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
-import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { uploadAndTranscribe, processLecture } from '@/lib/lectureProcessor';
- 
+
 // Two separate step lists: audio uploads go through 4 stages, but pasted
 // transcripts skip the upload/transcribe stages entirely since there's no
 // audio involved. Previously a single fixed STEPS array was always
@@ -21,14 +20,13 @@ const AUDIO_STEPS = [
   { id: 'analyze', label: 'Extracting concepts & knowledge graph', icon: Brain },
   { id: 'build', label: 'Building quizzes & timeline', icon: Network },
 ];
- 
+
 const TEXT_STEPS = [
   { id: 'analyze', label: 'Extracting concepts & knowledge graph', icon: Brain },
   { id: 'build', label: 'Building quizzes & timeline', icon: Network },
 ];
- 
+
 export default function LectureUploader({ user, onClose }) {
-  const { isGuest } = useAuth();
   const [mode, setMode] = useState('text');
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
@@ -38,31 +36,22 @@ export default function LectureUploader({ user, onClose }) {
   const [currentStep, setCurrentStep] = useState(-1);
   const [error, setError] = useState('');
   const navigate = useNavigate();
- 
+
   const steps = mode === 'audio' ? AUDIO_STEPS : TEXT_STEPS;
- 
+
   const handleFileChange = (e) => {
     const f = e.target.files?.[0];
     if (f) setFile(f);
   };
- 
+
   const handleProcess = async () => {
-    // Safety net — Home.jsx already keeps guests from opening this modal
-    // at all, but guard here too in case it's ever mounted another way.
-    // Guests still hold a real Supabase session, so nothing at the DB
-    // layer would stop a write; this is the actual gate.
-    if (isGuest) {
-      setError('Guest sessions can\'t save lectures. Create a free account to continue.');
-      return;
-    }
- 
     if (!title.trim()) { setError('Please enter a lecture title'); return; }
     if (mode === 'text' && !text.trim()) { setError('Please paste the lecture transcript'); return; }
     if (mode === 'audio' && !file) { setError('Please upload an audio file'); return; }
- 
+
     setError('');
     setProcessing(true);
- 
+
     try {
       const { data: lecture, error: createError } = await supabase
         .from('lectures')
@@ -75,28 +64,30 @@ export default function LectureUploader({ user, onClose }) {
         .select()
         .single();
       if (createError) throw createError;
- 
+
       let transcript = '';
       let audioUrl = '';
- 
+      let segments = null;
+
       if (mode === 'audio') {
         setCurrentStep(0); // Uploading audio
         const result = await uploadAndTranscribe(file);
         transcript = result.transcript;
         audioUrl = result.audio_url;
+        segments = result.segments;
         setCurrentStep(1); // Transcribing lecture
         setCurrentStep(2); // Extracting concepts & knowledge graph
       } else {
         transcript = text.trim();
         setCurrentStep(0); // Extracting concepts & knowledge graph (first step in TEXT_STEPS)
       }
- 
-      // Pass whether this lecture has real audio/timing behind it, so the
-      // extraction step knows whether it's safe to produce timestamps or
-      // whether it should leave them blank instead of guessing.
-      const data = await processLecture(lecture.id, transcript, title.trim(), subject.trim(), audioUrl, mode === 'audio');
+
+// Pass whether this lecture has real audio/timing behind it, and the raw
+// Whisper segments, so the extraction step can ground timestamps in real
+// data instead of guessing.
+      const data = await processLecture(lecture.id, transcript, title.trim(), subject.trim(), audioUrl, mode === 'audio', segments);
       setCurrentStep(steps.length - 1); // Building quizzes & timeline (final step)
- 
+
       setTimeout(() => {
         navigate(`/lecture/${lecture.id}`);
       }, 1200);
@@ -106,7 +97,7 @@ export default function LectureUploader({ user, onClose }) {
       setCurrentStep(-1);
     }
   };
- 
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -131,144 +122,122 @@ export default function LectureUploader({ user, onClose }) {
             </button>
           )}
         </div>
- 
+
         <div className="p-6">
-          {isGuest ? (
-            <div className="text-center py-6">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center mx-auto mb-4">
-                <UserRound className="w-6 h-6 text-primary" />
+          {!processing && currentStep < 0 && (
+            <>
+              <div className="flex gap-2 mb-6">
+                <button
+                  onClick={() => setMode('text')}
+                  className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
+                    mode === 'text' ? 'border-primary bg-primary/10 glow-sm-primary' : 'border-border hover:border-primary/30'
+                  }`}
+                >
+                  <Type className="w-5 h-5" />
+                  <span className="text-sm font-medium">Paste Transcript</span>
+                </button>
+                <button
+                  onClick={() => setMode('audio')}
+                  className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
+                    mode === 'audio' ? 'border-primary bg-primary/10 glow-sm-primary' : 'border-border hover:border-primary/30'
+                  }`}
+                >
+                  <Mic className="w-5 h-5" />
+                  <span className="text-sm font-medium">Upload Audio</span>
+                </button>
               </div>
-              <h3 className="text-lg font-semibold mb-2">Create a free account</h3>
-              <p className="text-sm text-muted-foreground mb-6">
-                Guest sessions don't save lectures. Create a free account to upload lectures and keep your progress.
-              </p>
-              <div className="flex gap-3 justify-center">
-                <Button variant="outline" onClick={() => onClose?.()}>
-                  Maybe later
+
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="title">Lecture Title</Label>
+                  <Input id="title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Introduction to Photosynthesis" className="bg-secondary/50 mt-1.5" />
+                </div>
+                <div>
+                  <Label htmlFor="subject">Subject (optional)</Label>
+                  <Input id="subject" value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Biology, Physics, Computer Science" className="bg-secondary/50 mt-1.5" />
+                </div>
+
+                {mode === 'text' && (
+                  <div>
+                    <Label htmlFor="text">Lecture Transcript</Label>
+                    <Textarea
+                      id="text"
+                      value={text}
+                      onChange={e => setText(e.target.value)}
+                      placeholder="Paste the full lecture transcript here..."
+                      className="bg-secondary/50 mt-1.5 min-h-[200px] resize-none"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">The AI will extract concepts, build a knowledge graph, generate quizzes, and detect confusion points — all from this text.</p>
+                  </div>
+                )}
+
+                {mode === 'audio' && (
+                  <div>
+                    <Label>Audio File</Label>
+                    <label className="flex flex-col items-center justify-center gap-2 p-8 mt-1.5 rounded-xl border-2 border-dashed border-border hover:border-primary/50 cursor-pointer transition-all">
+                      <Upload className="w-8 h-8 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">
+                        {file ? file.name : 'Click to upload audio (mp3, wav, m4a)'}
+                      </span>
+                      <input type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
+                    </label>
+                  </div>
+                )}
+
+                {error && <p className="text-sm text-destructive">{error}</p>}
+
+                <Button onClick={handleProcess} className="w-full bg-primary glow-primary hover:glow-primary text-base py-6">
+                  <Brain className="w-5 h-5 mr-2" />
+                  Process Lecture
                 </Button>
-                <Link to="/register">
-                  <Button className="bg-primary glow-primary">Create account</Button>
-                </Link>
+              </div>
+            </>
+          )}
+
+          {processing && (
+            <div className="py-8">
+              <div className="space-y-3">
+                {steps.map((step, i) => {
+                  const isDone = i < currentStep;
+                  const isActive = i === currentStep;
+                  const Icon = step.icon;
+                  return (
+                    <div
+                      key={step.id}
+                      className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
+                        isActive ? 'border-primary/40 bg-primary/5' : isDone ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-border opacity-40'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        isDone ? 'bg-emerald-500/20' : isActive ? 'bg-primary/20' : 'bg-secondary'
+                      }`}>
+                        {isDone ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                        ) : isActive ? (
+                          <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                        ) : (
+                          <Icon className="w-5 h-5 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className={`text-sm font-medium ${isDone ? 'text-emerald-400' : isActive ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {step.label}
+                        </p>
+                        {isActive && (
+                          <motion.p
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="text-xs text-muted-foreground mt-0.5"
+                          >
+                            Analyzing lecture content with AI...
+                          </motion.p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          ) : (
-            <>
-              {!processing && currentStep < 0 && (
-                <>
-                  <div className="flex gap-2 mb-6">
-                    <button
-                      onClick={() => setMode('text')}
-                      className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
-                        mode === 'text' ? 'border-primary bg-primary/10 glow-sm-primary' : 'border-border hover:border-primary/30'
-                      }`}
-                    >
-                      <Type className="w-5 h-5" />
-                      <span className="text-sm font-medium">Paste Transcript</span>
-                    </button>
-                    <button
-                      onClick={() => setMode('audio')}
-                      className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
-                        mode === 'audio' ? 'border-primary bg-primary/10 glow-sm-primary' : 'border-border hover:border-primary/30'
-                      }`}
-                    >
-                      <Mic className="w-5 h-5" />
-                      <span className="text-sm font-medium">Upload Audio</span>
-                    </button>
-                  </div>
- 
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="title">Lecture Title</Label>
-                      <Input id="title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Introduction to Photosynthesis" className="bg-secondary/50 mt-1.5" />
-                    </div>
-                    <div>
-                      <Label htmlFor="subject">Subject (optional)</Label>
-                      <Input id="subject" value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Biology, Physics, Computer Science" className="bg-secondary/50 mt-1.5" />
-                    </div>
- 
-                    {mode === 'text' && (
-                      <div>
-                        <Label htmlFor="text">Lecture Transcript</Label>
-                        <Textarea
-                          id="text"
-                          value={text}
-                          onChange={e => setText(e.target.value)}
-                          placeholder="Paste the full lecture transcript here..."
-                          className="bg-secondary/50 mt-1.5 min-h-[200px] resize-none"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">The AI will extract concepts, build a knowledge graph, generate quizzes, and detect confusion points — all from this text.</p>
-                      </div>
-                    )}
- 
-                    {mode === 'audio' && (
-                      <div>
-                        <Label>Audio File</Label>
-                        <label className="flex flex-col items-center justify-center gap-2 p-8 mt-1.5 rounded-xl border-2 border-dashed border-border hover:border-primary/50 cursor-pointer transition-all">
-                          <Upload className="w-8 h-8 text-muted-foreground" />
-                          <span className="text-sm text-muted-foreground">
-                            {file ? file.name : 'Click to upload audio (mp3, wav, m4a)'}
-                          </span>
-                          <input type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
-                        </label>
-                      </div>
-                    )}
- 
-                    {error && <p className="text-sm text-destructive">{error}</p>}
- 
-                    <Button onClick={handleProcess} className="w-full bg-primary glow-primary hover:glow-primary text-base py-6">
-                      <Brain className="w-5 h-5 mr-2" />
-                      Process Lecture
-                    </Button>
-                  </div>
-                </>
-              )}
- 
-              {processing && (
-                <div className="py-8">
-                  <div className="space-y-3">
-                    {steps.map((step, i) => {
-                      const isDone = i < currentStep;
-                      const isActive = i === currentStep;
-                      const Icon = step.icon;
-                      return (
-                        <div
-                          key={step.id}
-                          className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
-                            isActive ? 'border-primary/40 bg-primary/5' : isDone ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-border opacity-40'
-                          }`}
-                        >
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isDone ? 'bg-emerald-500/20' : isActive ? 'bg-primary/20' : 'bg-secondary'
-                          }`}>
-                            {isDone ? (
-                              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                            ) : isActive ? (
-                              <Loader2 className="w-5 h-5 text-primary animate-spin" />
-                            ) : (
-                              <Icon className="w-5 h-5 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <p className={`text-sm font-medium ${isDone ? 'text-emerald-400' : isActive ? 'text-primary' : 'text-muted-foreground'}`}>
-                              {step.label}
-                            </p>
-                            {isActive && (
-                              <motion.p
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className="text-xs text-muted-foreground mt-0.5"
-                              >
-                                Analyzing lecture content with AI...
-                              </motion.p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
           )}
         </div>
       </motion.div>

@@ -1,65 +1,43 @@
-OmniScribe AI
-Transform raw lecture audio into a personalized, interactive learning universe.
+## Inspiration
+Most students always have to choose between listening to my teacher and writing everything down. Whenever they are focused on taking notes, they missed important explanations. But if they paid attention, the students will still ended up with incomplete notes. It felt like students had to sacrifice one for the other.
+That's why we built OmniScribe. We wanted an AI that takes care of the note-taking so students can spend class actually learning instead of trying to write every word.
 
-Overview
-OmniScribe AI turns passive, tedious lecture listening into an active learning experience. By combining real-time audio transcript processing with high-level concept mapping, OmniScribe converts course recordings into structured Knowledge Graphs, proactive Confusion Detection alerts, adaptive AI Tutoring, and personalized Study Plans mapped directly to your exam dates.
+## What it does
+OmniScribe is an AI powered study assistant that turns lectures into an interactive learning experience instead of just a page of notes.
+It can:
+- Create interactive knowledge graphs that connect ideas together so you can actually see how concepts relate.
+- Teach concepts your way. Whether you understand things better through sports, coding, stories, or simple examples, the AI adapts its explanations to match your learning style.
+- Catch confusing topics early by finding concepts students commonly mix up before they become problems on tests.
+- Build personalized study plans based on your exam date so you know exactly what to study each day.
+- Generate practice quizzes with explanations so you're learning from your mistakes instead of just seeing whether you were right or wrong.
 
-Key Features
-Visual Knowledge Graph: Automatically extracts core concepts from transcripts, identifies prerequisite relationships, and visualizes topic mastery in real time.
+Instead of only giving students notes, OmniScribe helps them actually understand what they're learning.
 
-Dynamic AI Tutor: Adapts explanations to how you learn best. Select your preferred style—such as Sports Analogies, Programming Metaphors, or Storytelling—and receive customized explanations tailored to your grade level.
+## How we built it
+- We built the frontend using React, Vite, and Tailwind CSS to create a fast and responsive interface.
+- For the backend, we used Node.js with Supabase to handle authentication, user accounts, and our PostgreSQL database.
+- Our AI features are powered by Grok, which extracts important concepts, builds knowledge graphs, generates quizzes, creates study plans, and acts as a personalized tutor.
+- The app is deployed on Vercel, and users can either sign in with Google or instantly try everything using a guest account.
 
-Predictive Confusion Detection: Identifies subtle mental hurdles and frequently mixed-up concepts (e.g., confusing the Sanding Metaphor with the Editing Process) before they cost you points on exams.
+## Challenges we ran into
+- One of the biggest challenges was getting authentication working correctly. Configuring Google OAuth with Supabase and Vercel took much longer than expected because of redirect URLs and production settings.
+- Another challenge was processing lecture transcripts. Early on, the AI sometimes misunderstood timestamps and even turned a short lecture into one that was much longer than it actually was. We had to improve our prompts and processing logic so the AI respected the real transcript timing.
+- We also had to fix deployment issues with React routing on Vercel, where refreshing certain pages caused 404 errors until we configured proper rewrite rules.
 
-Automated Study Plans: Input your target exam date, and OmniScribe calculates your remaining prep timeline to generate a daily, step-by-step study schedule.
+## Accomplishments that we're proud of
+- One thing we're most proud of is that the AI isn't just summarizing lectures, it actually helps students learn. It builds knowledge graphs, creates personalized study plans, explains difficult topics in different ways, and generates practice quizzes automatically.
+- We're also proud of making the app easy to try. People can jump straight into a guest account without creating an account first, making the experience much smoother.
+- Finally, seeing a lecture transformed into an interactive map of connected ideas was one of the coolest parts of the project.
 
-Adaptive Quizzes & Mastery Tracking: Generates context-aware multiple-choice quizzes with detailed answer rationales to measure topic proficiency.
+## What we learned
+- This project taught us a lot about prompt engineering and how important it is to structure AI responses consistently, especially when working with long transcripts.
+- We also learned how production authentication works across Google OAuth, Supabase, and Vercel, and gained experience deploying a full stack React application with secure environment variables and proper routing.
 
-Interactive Lecture Timeline: Jump directly to key moments, concepts, and definitions using automated lecture timestamps.
+## What's next for OmniScribe
+We have a lot of ideas we'd love to add in the future:
+- Record lectures live and generate knowledge graphs in real time.
+- Let students upload lecture slides or PDFs so the AI can combine them with lecture audio.
+- Export flashcards directly into apps like Anki or Notion.
+- Add collaborative study groups where classmates can share knowledge graphs and compete in AI generated quiz battles.
 
-Tech Stack
-Frontend: React, Vite, Tailwind CSS, Lucide Icons
-
-Backend & Auth: Supabase (Database, Auth, Storage)
-
-AI Engine: Grok API (xAI) for fast, long-context reasoning and concept extraction
-
-Deployment: Vercel
-
-Getting Started
-Follow these steps to set up and run OmniScribe AI locally on your machine.
-
-Prerequisites
-Node.js (v18.0 or higher)
-
-npm or yarn
-
-A Supabase account and project
-
-An xAI / Grok API key
-
-1. Clone the Repository
-Bash
-git clone https://github.com/YOUR_USERNAME/omniscribe-ai.git
-cd omniscribe-ai
-2. Install Dependencies
-Bash
-npm install
-3. Configure Environment Variables
-Create a .env.local file in the root directory and add your credentials:
-
-Code snippet
-VITE_SUPABASE_URL=https://your-supabase-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_XAI_API_KEY=your_grok_api_key
-4. Run the Development Server
-Bash
-npm run dev
-Open your browser and navigate to http://localhost:5173 to test the application locally.
-
-Demo Access
-If you prefer to review a pre-loaded account without configuring environment keys or signing in via Google:
-
-Demo URL: https://your-app.vercel.app
-
-Guest Access: Click the "Continue as Guest" button on the login screen to access.
+Our goal is simple: make learning more interactive, more personalized, and a lot less stressful so students can spend their time understanding instead of just copying notes.

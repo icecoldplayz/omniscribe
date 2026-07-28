@@ -1,21 +1,3 @@
-// src/lib/AuthContext.jsx
-//
-// Drop-in replacement for the Base44 AuthContext. Exposes the same shape
-// ({ user, isAuthenticated, isLoadingAuth, isLoadingPublicSettings, authError,
-// logout, navigateToLogin, checkUserAuth, checkAppState }) so App.jsx and
-// every page that calls useAuth() needs zero changes.
-//
-// Adds: isGuest — true when the current session is an anonymous
-// (supabase.auth.signInAnonymously()) session. Supabase sets `is_anonymous:
-// true` directly on the auth user object for these sessions, so this is
-// just read off the session, not something we compute ourselves.
-//
-// Note: Base44's "user_not_registered" concept (multi-tenant app gating)
-// has no direct Supabase equivalent — this version only distinguishes
-// "authenticated" vs "auth_required". If you need an invite-only/approved-
-// users gate, add a `profiles` table with an `approved` column and check
-// it in checkUserAuth below.
-
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 

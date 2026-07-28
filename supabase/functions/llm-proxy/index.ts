@@ -1,13 +1,3 @@
-// supabase/functions/llm-proxy/index.ts
-//
-// Deploy with: supabase functions deploy llm-proxy --no-verify-jwt
-// Set your key with: supabase secrets set GROQ_API_KEY=gsk_...
-//
-// This function replaces base44.integrations.Core.InvokeLLM and
-// base44.integrations.Core.TranscribeAudio, using Groq (free tier) instead
-// of OpenAI. Groq hosts Whisper for transcription and Llama models for
-// text generation, both via an OpenAI-compatible API shape.
-// Your key stays server-side — never shipped to the browser.
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -19,11 +9,7 @@ const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
 const DEFAULT_MODEL = "llama-3.3-70b-versatile"; // Groq's strongest general-purpose free-tier model
 const WHISPER_MODEL = "whisper-large-v3";
 
-// Groq's OpenAI-compatible endpoint does NOT reliably support strict
-// json_schema structured outputs the way OpenAI does. Instead, we use
-// response_format: { type: "json_object" } (which Groq does support on
-// Llama models) and enforce the shape by embedding the schema directly
-// in the prompt, then validate/parse on our end.
+
 async function invokeLLM(prompt: string, schema: Record<string, unknown>, model = DEFAULT_MODEL) {
   const schemaInstructions = `
 You must respond with ONLY a valid JSON object — no markdown, no code fences, no commentary before or after.
@@ -69,9 +55,6 @@ Every property listed under "properties" in the schema is required unless the sc
 
 // Requests verbose_json instead of the default plain-text response, which
 // gives us real segment-level start/end timestamps straight from Whisper.
-// Without this, the transcript is just a wall of text with zero timing
-// info, and the extraction step downstream has nothing to ground
-// timestamps in — it ends up inventing plausible-looking but fake ones.
 async function transcribeAudio(audioUrl: string) {
   const audioRes = await fetch(audioUrl);
   if (!audioRes.ok) {

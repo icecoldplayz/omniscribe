@@ -1,12 +1,3 @@
-// src/lib/lectureProcessor.js
-//
-// Drop-in replacement for the Base44 version. Same four exported functions,
-// same signatures, same prompts and schemas — only the transport changed:
-// base44.integrations.Core.* -> supabase storage + your llm-proxy edge function
-// base44.entities.* -> supabase.from(table)
-//
-// Requires: src/lib/supabaseClient.js exporting `supabase` (createClient(...)).
-
 import { supabase } from '@/lib/supabaseClient';
 
 const EXTRACTION_SCHEMA = {
@@ -96,7 +87,6 @@ function buildTimestampedTranscript(segments) {
   return segments.map(s => `[${formatTimestamp(s.start)}] ${s.text.trim()}`).join('\n');
 }
 
-// ---- public API (same signatures as the Base44 version, plus hasAudio/segments) --------------
 
 export async function uploadAndTranscribe(file) {
   const path = `lectures/${crypto.randomUUID()}-${file.name}`;

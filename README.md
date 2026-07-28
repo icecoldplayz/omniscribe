@@ -41,3 +41,6 @@ We have a lot of ideas we'd love to add in the future:
 - Add collaborative study groups where classmates can share knowledge graphs and compete in AI generated quiz battles.
 
 Our goal is simple: make learning more interactive, more personalized, and a lot less stressful so students can spend their time understanding instead of just copying notes.
+
+## Web Link
+https://omniscribe-two.vercel.app/
